@@ -1,8 +1,9 @@
-name: 4d_gaussian_splatting
+name: 4dgs_fdu
 channels:
   - pytorch
-  - conda-forge
   - defaults
+  - https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/conda-forge/
+  # - conda-forge
 dependencies:
   - cudatoolkit=11.6
   - plyfile=0.8.1

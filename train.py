@@ -13,6 +13,7 @@ import os
 import random
 import torch
 from torch import nn
+torch.multiprocessing.set_sharing_strategy('file_system')
 from utils.loss_utils import l1_loss, ssim, msssim
 from gaussian_renderer import render
 import sys
@@ -389,14 +390,14 @@ if __name__ == "__main__":
         recursive_merge(k, cfg)
         
     if args.exhaust_test:
-        args.test_iterations = args.test_iterations + [i for i in range(0,op.iterations,500)]
+        args.test_iterations = args.test_iterations + [i for i in range(0,op.iterations,3000)]
     
     setup_seed(args.seed)
     
     print("Optimizing " + args.model_path)
 
     # Initialize system state (RNG)
-    safe_state(args.quiet)
+    # safe_state(args.quiet)
 
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
     training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.start_checkpoint, args.debug_from,

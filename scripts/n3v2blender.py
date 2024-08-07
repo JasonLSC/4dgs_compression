@@ -220,6 +220,7 @@ def rotmat(a, b):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser() # TODO: refine it.
     parser.add_argument("path", default="", help="input path to the video")
+    parser.add_argument("--test_view_id", nargs="+", type=int, default=[0])
     args = parser.parse_args()
 
     # path must end with / to make sure image path is relative
@@ -231,14 +232,17 @@ if __name__ == '__main__':
     images_path = os.path.join(args.path, "images/")
     os.makedirs(images_path, exist_ok=True)
     
-    for video in videos:
-        cam_name = video.split('/')[-1].split('.')[-2]
-        do_system(f"ffmpeg -i {video} -start_number 0 {images_path}/{cam_name}_%04d.png")
+    # for video in videos:
+    #     cam_name = video.split('/')[-1].split('.')[-2]
+    #     do_system(f"ffmpeg -i {video} -t 10 -start_number 0 -pix_fmt rgb24 {images_path}/{cam_name}_%04d.png") # 额外增加 “-pix_fmt rgb24”, 确保输出的8-bit/color RGB，能被colmap所读
         
     # load data
     images = [f[len(args.path):] for f in sorted(glob.glob(os.path.join(args.path, "images/", "*"))) if f.lower().endswith('png') or f.lower().endswith('jpg') or f.lower().endswith('jpeg')]
+    # just single frame
+    # images = [f[len(args.path):] for f in sorted(glob.glob(os.path.join(args.path, "images/", "*_0000.png"))) if f.lower().endswith('png') or f.lower().endswith('jpg') or f.lower().endswith('jpeg')]
+
     cams = sorted(set([im[7:12] for im in images]))
-    
+
     poses_bounds = np.load(os.path.join(args.path, 'poses_bounds.npy'))
     N = poses_bounds.shape[0]
 
@@ -252,7 +256,7 @@ if __name__ == '__main__':
     H, W, fl = poses[0, :, -1] 
 
     print(f'[INFO] H = {H}, W = {W}, fl = {fl}')
-
+    import pdb; pdb.set_trace()
     # inversion of this: https://github.com/Fyusion/LLFF/blob/c6e27b1ee59cb18f054ccb0f87a90214dbe70482/llff/poses/pose_utils.py#L51
     poses = np.concatenate([poses[..., 1:2], poses[..., 0:1], -poses[..., 2:3], poses[..., 3:4]], -1) # (N, 3, 4)
 
@@ -263,17 +267,18 @@ if __name__ == '__main__':
     # the following stuff are from colmap2nerf... 
     poses[:, 0:3, 1] *= -1
     poses[:, 0:3, 2] *= -1
-    poses = poses[:, [1, 0, 2, 3], :] # swap y and z
-    poses[:, 2, :] *= -1 # flip whole world upside down
+    poses = poses[:, [1, 0, 2, 3], :] # swap y and z        # sicheng: i dont get it??
+    poses[:, 2, :] *= -1 # flip whole world upside down     # sicheng: i dont get it??
 
     up = poses[:, 0:3, 1].sum(0)
     up = up / np.linalg.norm(up)
     R = rotmat(up, [0, 0, 1]) # rotate up vector to [0,0,1]
     R = np.pad(R, [0, 1])
     R[-1, -1] = 1
+ 
+    poses = R @ poses # rotate up to be the z axis
 
-    poses = R @ poses
-
+    # find a central point they are all looking at
     totw = 0.0
     totp = np.array([0.0, 0.0, 0.0])
     for i in range(N):
@@ -286,12 +291,12 @@ if __name__ == '__main__':
                 totp += p * w
                 totw += w
     totp /= totw
-    print(f'[INFO] totp = {totp}')
+    print(f'[INFO] totp = {totp}') # the cameras are looking at totp
     poses[:, :3, 3] -= totp
 
-    avglen = np.linalg.norm(poses[:, :3, 3], axis=-1).mean()
+    avglen = np.linalg.norm(poses[:, :3, 3], axis=-1).mean() # avg camera distance from origin
 
-    poses[:, :3, 3] *= 4.0 / avglen
+    poses[:, :3, 3] *= 4.0 / avglen # scale to "nerf sized"
 
     print(f'[INFO] average radius = {avglen}')
     
@@ -301,7 +306,8 @@ if __name__ == '__main__':
         cam_frames = [{'file_path': im.lstrip("/").split('.')[0], 
                        'transform_matrix': poses[i].tolist(),
                        'time': int(im.lstrip("/").split('.')[0][-4:]) / 30.} for im in images if cams[i] in im]
-        if i == 0:
+        
+        if i in args.test_view_id: # change from 0 -> args.test_view_id
             test_frames += cam_frames
         else:
             train_frames += cam_frames
@@ -351,7 +357,7 @@ if __name__ == '__main__':
     for fname in fname2pose.keys():
         os.symlink(os.path.abspath(os.path.join(images_path, fname)), os.path.join(colmap_workspace, 'images', fname))
                 
-    with open(os.path.join(colmap_workspace, 'created/sparse/images.txt'), 'w') as f:
+    with open(os.path.join(colmap_workspace, 'created/sparse/images.txt'), 'w') as f: # 得到经缩放+中心化变换后的的txt
         idx = 1
         for fname in fname2pose.keys():
             pose = fname2pose[fname]
@@ -372,12 +378,15 @@ if __name__ == '__main__':
     
     do_system(f"colmap feature_extractor \
                 --database_path {db_path} \
-                --image_path {os.path.join(colmap_workspace, 'images')}")
+                --image_path {os.path.join(colmap_workspace, 'images')} \
+                --ImageReader.camera_model PINHOLE \
+                --SiftExtraction.use_gpu 1")
     
     camTodatabase(os.path.join(colmap_workspace, 'created/sparse/cameras.txt'), db_path)
     
     do_system(f"colmap exhaustive_matcher  \
-                --database_path {db_path}")
+                --database_path {db_path} \
+                --SiftMatching.use_gpu 1")
     
     os.makedirs(os.path.join(colmap_workspace, 'triangulated', 'sparse'), exist_ok=True)
     
@@ -400,13 +409,15 @@ if __name__ == '__main__':
                 --output_path  {os.path.join(colmap_workspace, 'dense')}")
     
     do_system(f"colmap patch_match_stereo   \
-                --workspace_path   {os.path.join(colmap_workspace, 'dense')}")
+                --workspace_path   {os.path.join(colmap_workspace, 'dense')} \
+                --workspace_format COLMAP \
+                --PatchMatchStereo.gpu_index 2,3,4,5,6")
     
     do_system(f"colmap stereo_fusion    \
                 --workspace_path {os.path.join(colmap_workspace, 'dense')} \
                 --output_path {os.path.join(args.path, 'points3d.ply')}")
     
-    shutil.rmtree(colmap_workspace)
+    # shutil.rmtree(colmap_workspace)
     os.remove(os.path.join(args.path, 'points3d.ply.vis'))
     
     print(f"[INFO] Initial point cloud is saved in {os.path.join(args.path, 'points3d.ply')}.")

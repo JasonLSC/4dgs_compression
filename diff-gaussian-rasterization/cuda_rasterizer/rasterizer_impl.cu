@@ -259,12 +259,12 @@ int CudaRasterizer::Rasterizer::forward(
 	CHECK_CUDA(FORWARD::preprocess(
 		P, D, D_t, M,
 		means3D,
-		ts,
+		ts, // 4D:? not sure whether it is "cur_timestamp" or "mu_t"
 		(glm::vec3*)scales,
-		scales_t,
+		scales_t, // 4D: scaling value of "t" axis
 		scale_modifier,
 		(glm::vec4*)rotations,
-		(glm::vec4*)rotations_r,
+		(glm::vec4*)rotations_r, // 4D: new quaternion for 4d rotation
 		opacities,
 		shs,
 		geomState.clamped,
@@ -272,9 +272,9 @@ int CudaRasterizer::Rasterizer::forward(
 		colors_precomp,
 		viewmatrix, projmatrix,
 		(glm::vec3*)cam_pos,
-		timestamp,
-		time_duration,
-		rot_4d, gaussian_dim, force_sh_3d,
+		timestamp, // 4D:? not sure whether it is "cur_timestamp" or "mu_t"
+		time_duration, // new term
+		rot_4d, gaussian_dim, force_sh_3d, // new term
 		width, height,
 		focal_x, focal_y,
 		tan_fovx, tan_fovy,

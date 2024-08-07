@@ -16,18 +16,21 @@ class CameraDataset(Dataset):
     def __getitem__(self, index):
         viewpoint_cam = self.viewpoint_stack[index]
         if viewpoint_cam.meta_only:
-            with Image.open(viewpoint_cam.image_path) as image_load:
-                im_data = np.array(image_load.convert("RGBA"))
-            norm_data = im_data / 255.0
-            arr = norm_data[:,:,:3] * norm_data[:, :, 3:4] + self.bg * (1 - norm_data[:, :, 3:4])
-            image_load = Image.fromarray(np.array(arr*255.0, dtype=np.byte), "RGB")
-            resized_image_rgb = PILtoTorch(image_load, viewpoint_cam.resolution)
-            viewpoint_image = resized_image_rgb[:3, ...].clamp(0.0, 1.0)
-            if resized_image_rgb.shape[1] == 4:
-                gt_alpha_mask = resized_image_rgb[3:4, ...]
-                viewpoint_image *= gt_alpha_mask
-            else:
-                viewpoint_image *= torch.ones((1, viewpoint_cam.image_height, viewpoint_cam.image_width))
+            try:
+                with Image.open(viewpoint_cam.image_path) as image_load:
+                    im_data = np.array(image_load.convert("RGBA"))
+                norm_data = im_data / 255.0
+                arr = norm_data[:,:,:3] * norm_data[:, :, 3:4] + self.bg * (1 - norm_data[:, :, 3:4])
+                image_load = Image.fromarray(np.array(arr*255.0, dtype=np.byte), "RGB")
+                resized_image_rgb = PILtoTorch(image_load, viewpoint_cam.resolution)
+                viewpoint_image = resized_image_rgb[:3, ...].clamp(0.0, 1.0)
+                if resized_image_rgb.shape[1] == 4:
+                    gt_alpha_mask = resized_image_rgb[3:4, ...]
+                    viewpoint_image *= gt_alpha_mask
+                else:
+                    viewpoint_image *= torch.ones((1, viewpoint_cam.image_height, viewpoint_cam.image_width))
+            except:
+                viewpoint_image = torch.ones((3, viewpoint_cam.image_height, viewpoint_cam.image_width))
         else:
             viewpoint_image = viewpoint_cam.image
             

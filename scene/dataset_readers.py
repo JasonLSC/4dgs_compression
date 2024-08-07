@@ -186,6 +186,7 @@ def readColmapSceneInfo(path, images, eval, llffhold=8, num_pts_ratio=1.0):
         pcd = fetchPly(ply_path)
     except:
         pcd = None
+    import pdb; pdb.set_trace()
     if num_pts_ratio > 1.001:
         num_pts = int((num_pts_ratio - 1) * pcd.points.shape[0])
         mean_xyz = pcd.points.mean(axis=0)
@@ -229,7 +230,8 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
             if timestamp < time_duration[0] or timestamp > time_duration[1]:
                 return
 
-        cam_name = os.path.join(path, frame["file_path"] + extension)
+        # cam_name = os.path.join(path, frame["file_path"] + extension)
+        cam_name = os.path.join(path, frame.get('file_path', f'{idx:04d}') + extension)
 
         # NeRF 'transform_matrix' is a camera-to-world transform
         c2w = np.array(frame["transform_matrix"])
@@ -245,23 +247,30 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
         image_name = Path(cam_name).stem
         
         if not dataloader:
-            with Image.open(image_path) as image_load:
-                im_data = np.array(image_load.convert("RGBA"))
+            if frame.get('file_path', f'{idx:04d}') != f'{idx:04d}':
+                with Image.open(image_path) as image_load:
+                    im_data = np.array(image_load.convert("RGBA"))
 
-            bg = np.array([1,1,1]) if white_background else np.array([0, 0, 0])
+                bg = np.array([1,1,1]) if white_background else np.array([0, 0, 0])
 
-            norm_data = im_data / 255.0
-            arr = norm_data[:,:,:3] * norm_data[:, :, 3:4] + bg * (1 - norm_data[:, :, 3:4])
-            if norm_data[:, :, 3:4].min() < 1:
-                arr = np.concatenate([arr, norm_data[:, :, 3:4]], axis=2)
-                image = Image.fromarray(np.array(arr*255.0, dtype=np.byte), "RGBA")
+                norm_data = im_data / 255.0
+                arr = norm_data[:,:,:3] * norm_data[:, :, 3:4] + bg * (1 - norm_data[:, :, 3:4])
+                if norm_data[:, :, 3:4].min() < 1:
+                    arr = np.concatenate([arr, norm_data[:, :, 3:4]], axis=2)
+                    image = Image.fromarray(np.array(arr*255.0, dtype=np.byte), "RGBA")
+                else:
+                    image = Image.fromarray(np.array(arr*255.0, dtype=np.byte), "RGB")
+
+                width, height = image.size[0], image.size[1]
             else:
-                image = Image.fromarray(np.array(arr*255.0, dtype=np.byte), "RGB")
-
-            width, height = image.size[0], image.size[1]
+                image = np.empty(0)
+                width, height = 1920, 1080
         else:
             image = np.empty(0)
-            width, height = imagesize.get(image_path)
+            try:
+                width, height = imagesize.get(image_path)
+            except:
+                width, height = 1920, 1080
         
         if 'depth_path' in frame:
             depth_name = frame["depth_path"]
@@ -308,12 +317,12 @@ def readCamerasFromTransforms(path, transformsfile, white_background, extension=
     return cam_infos
 
 def readNerfSyntheticInfo(path, white_background, eval, extension=".png", num_pts=100_000, time_duration=None, num_extra_pts=0, frame_ratio=1, dataloader=False):
-    
     print("Reading Training Transforms")
     train_cam_infos = readCamerasFromTransforms(path, "transforms_train.json", white_background, extension, time_duration=time_duration, frame_ratio=frame_ratio, dataloader=dataloader)
     print("Reading Test Transforms")
     test_cam_infos = readCamerasFromTransforms(path, "transforms_test.json" if not path.endswith('lego') else "transforms_val.json", white_background, extension, time_duration=time_duration, frame_ratio=frame_ratio, dataloader=dataloader)
-    
+    # test_cam_infos = readCamerasFromTransforms(path, "pose_trace.json" if not path.endswith('lego') else "transforms_val.json", white_background, extension, time_duration=time_duration, frame_ratio=frame_ratio, dataloader=dataloader)
+
     if not eval:
         train_cam_infos.extend(test_cam_infos)
         test_cam_infos = []
@@ -336,7 +345,7 @@ def readNerfSyntheticInfo(path, white_background, eval, extension=".png", num_pt
     except:
         pcd = None
 
-    if pcd.points.shape[0] > num_pts:
+    if pcd.points.shape[0] > num_pts: # sicheng: why mask?
         mask = np.random.randint(0, pcd.points.shape[0], num_pts)
         # mask = fps(torch.from_numpy(pcd.points).cuda()[None], num_pts).cpu().numpy()
         if pcd.time is not None:

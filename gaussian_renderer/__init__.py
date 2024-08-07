@@ -118,7 +118,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     
     # Prefilter
     if pipe.compute_cov3D_python and pc.gaussian_dim == 4:
-        mask = marginal_t[:,0] > 0.05
+        mask = marginal_t[:,0] > 0.05 # marginal_t 更像是一种权重
         if means2D is not None:
             means2D = means2D[mask]
         if means3D is not None:

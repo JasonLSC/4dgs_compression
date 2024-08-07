@@ -25,7 +25,7 @@ The hardware and software requirements are the same as those of the [3D Gaussian
 git clone https://github.com/fudan-zvg/4d-gaussian-splatting
 cd 4d-gaussian-splatting
 conda env create --file environment.yml
-conda activate 4dgs
+conda activate 4dgs_fdu
 ```
 
 ### Data preparation
@@ -42,6 +42,24 @@ python scripts/n3v2blender.py data/N3V/$scene_name
 
 The dataset can be downloaded from [drive](https://drive.google.com/file/d/19Na95wk0uikquivC7uKWVqllmTx-mBHt/view?usp=sharing) or [dropbox](https://www.dropbox.com/s/0bf6fl0ye2vz3vr/data.zip?dl=0). Then, unzip each scene into `data/dnerf`.
 
+**INVR dataset:**
+
+First, process the raw YUV video files and MPEG-OMAF scene configuration file by executing:
+
+```shell
+python scripts/miv2n3v.py data/INVR/$scene_name
+```
+
+After that, process the mp4 videos and obtain json file from 'poses_bounds.npy' file by executing:
+
+```shell
+python scripts/n3v2blender.py data/INVR/$scene_name --test_view_id $view_id
+```
+
+For example:
+```shell
+python scripts/n3v2blender.py /work/Users/lisicheng/Dataset/INVR_n3d_like/Musical/ --test_view_id 8 12
+```
 
 ### Running
 

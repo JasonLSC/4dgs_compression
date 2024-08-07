@@ -9,7 +9,7 @@ exhaust_test: True
 
 ModelParams:
   sh_degree: 3
-  source_path: "data/N3V/coffee_martini"
+  source_path: "/work/Users/lisicheng/Dataset/neural_3d/coffee_martini/"
   model_path: "output/N3V/coffee_martini"
   images: "images"
   resolution: 2
@@ -48,7 +48,7 @@ OptimizationParams:
   densification_interval: 100
   opacity_reset_interval: 3000
   densify_from_iter: 500
-  densify_until_iter: 15_000
+  densify_until_iter: 10_000 # change from 15000 to 10000 to avoid OOM @ RTX3090
   densify_grad_threshold: 0.0002
   densify_grad_t_threshold: 0.0002 / 40 # 想办法用上
   densify_until_num_points: -1
