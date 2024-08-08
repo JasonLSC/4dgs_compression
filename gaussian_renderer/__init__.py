@@ -69,10 +69,15 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     rotations_r = None
     ts = None
     cov3D_precomp = None
+
+    # import pdb; pdb.set_trace()
+    static_dynamic_decomposition = True
     if pipe.compute_cov3D_python:
         if pc.rot_4d:
-            cov3D_precomp, delta_mean = pc.get_current_covariance_and_mean_offset(scaling_modifier, viewpoint_camera.timestamp)
+            cov3D_precomp, delta_mean, velocity = pc.get_current_covariance_and_mean_offset(scaling_modifier, viewpoint_camera.timestamp)
             means3D = means3D + delta_mean
+            if static_dynamic_decomposition:
+                static_mask = torch.norm(velocity, dim=1) > 0.5
         else:
             cov3D_precomp = pc.get_covariance(scaling_modifier)
         if pc.gaussian_dim == 4:
@@ -119,6 +124,8 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     # Prefilter
     if pipe.compute_cov3D_python and pc.gaussian_dim == 4:
         mask = marginal_t[:,0] > 0.05 # marginal_t 更像是一种权重
+        if static_dynamic_decomposition:
+            mask = torch.logical_and(mask, static_mask)
         if means2D is not None:
             means2D = means2D[mask]
         if means3D is not None:

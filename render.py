@@ -15,6 +15,7 @@ import os
 import random
 import torch
 from torch import nn
+import glob
 torch.multiprocessing.set_sharing_strategy('file_system')
 from utils.loss_utils import l1_loss, ssim, msssim
 from gaussian_renderer import render
@@ -107,7 +108,7 @@ def rendering_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_
     os.makedirs(save_gt, exist_ok=True)
     save_renders = save_basedir+'/renders'
     os.makedirs(save_renders, exist_ok=True)
-    
+
     config = {'name': 'test', 'cameras' : scene.getTestCameras()}
     render_time = []
     with torch.no_grad():
@@ -126,7 +127,6 @@ def rendering_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_
                 torch.cuda.synchronize()
                 start_time = time.time()
 
-                # import pdb; pdb.set_trace()
                 render_pkg = renderFunc(viewpoint, scene.gaussians, *renderArgs)
 
                 torch.cuda.synchronize()
@@ -180,7 +180,12 @@ def rendering_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_
             tb_writer.add_scalar(config['name'] + '/loss_viewpoint - msssim', msssim_test, iteration)
         if config['name'] == 'test':
             psnr_test_iter = psnr_test.item()
-    # import pdb; pdb.set_trace()
+    
+    # concat frames from test views to form videos
+    test_view_ids = [os.path.basename(vid)[:3] for vid in sorted(glob.glob(save_renders+"/*_0000.png"))]
+    for vid in test_view_ids:
+        cmd = f"ffmpeg -framerate 30 -i {save_renders}/{vid}_%04d.png -c:v libx264 -preset veryslow -crf 18 {save_renders}/{vid}.mp4"
+        os.system(cmd)
     
     return psnr_test_iter
 

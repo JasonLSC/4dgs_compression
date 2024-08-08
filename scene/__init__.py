@@ -67,7 +67,8 @@ class Scene:
 
         if shuffle:
             random.shuffle(scene_info.train_cameras)  # Multi-res consistent random shuffling
-            random.shuffle(scene_info.test_cameras)  # Multi-res consistent random shuffling
+            # random.shuffle(scene_info.test_cameras)  # Multi-res consistent random shuffling # do not shuffle with test_sets
+        # import pdb; pdb.set_trace()
 
         self.cameras_extent = scene_info.nerf_normalization["radius"]
 

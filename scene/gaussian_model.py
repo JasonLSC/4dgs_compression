@@ -40,11 +40,13 @@ class GaussianModel:
             current_covariance = cov_11 - cov_12 @ cov_12.transpose(1, 2) / cov_t
             symm = strip_symmetric(current_covariance)
             if dt.shape[1] > 1:
+                # TODO: add velocity
                 mean_offset = (cov_12.squeeze(-1) / cov_t.squeeze(-1))[:, None, :] * dt[..., None]
                 mean_offset = mean_offset[..., None]  # [num_pts, num_time, 3, 1]
             else:
-                mean_offset = cov_12.squeeze(-1) / cov_t.squeeze(-1) * dt
-            return symm, mean_offset.squeeze(-1)
+                velocity = cov_12.squeeze(-1) / cov_t.squeeze(-1)
+                mean_offset = velocity * dt
+            return symm, mean_offset.squeeze(-1), velocity
         
         self.scaling_activation = torch.exp
         self.scaling_inverse_activation = torch.log
