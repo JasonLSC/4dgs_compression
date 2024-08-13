@@ -506,6 +506,8 @@ class GaussianModel:
             new_scaling_t = None
             new_rotation_r = None
             if self.gaussian_dim == 4:
+                # sample a new center pos. from the Gaussians
+                # and assign a smaller scaling_t to new Gaussians (but why?)
                 stds_t = self.get_scaling_t[selected_pts_mask].repeat(N,1)
                 means_t = torch.zeros((stds_t.size(0), 1),device="cuda")
                 samples_t = torch.normal(mean=means_t, std=stds_t)

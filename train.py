@@ -80,6 +80,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     training_dataloader = DataLoader(training_dataset, batch_size=batch_size, shuffle=True, num_workers=12 if dataset.dataloader else 0, collate_fn=lambda x: x, drop_last=True)
      
     iteration = first_iter
+    import pdb; pdb.set_trace()
     while iteration < opt.iterations + 1:
         for batch_data in training_dataloader:
             iteration += 1
@@ -166,16 +167,18 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 batch_visibility_filter.append(visibility_filter)
 
             if batch_size > 1:
-                visibility_count = torch.stack(batch_visibility_filter,1).sum(1)
+                visibility_count = torch.stack(batch_visibility_filter,1).sum(1) # shape: [pts_num], values in rnage: [0, 4]
                 visibility_filter = visibility_count > 0
-                radii = torch.stack(batch_radii,1).max(1)[0]
+                radii = torch.stack(batch_radii,1).max(1)[0] # choose max radii in a batch
                 
-                batch_viewspace_point_grad = torch.stack(batch_point_grad,1).sum(1)
-                batch_viewspace_point_grad[visibility_filter] = batch_viewspace_point_grad[visibility_filter] * batch_size / visibility_count[visibility_filter]
+                # sum up, divide by vis_count, multiple bs 
+                batch_viewspace_point_grad = torch.stack(batch_point_grad,1).sum(1) # sum up grad in 2D space in a batch
+                batch_viewspace_point_grad[visibility_filter] = batch_viewspace_point_grad[visibility_filter] * batch_size / visibility_count[visibility_filter] # divide 
                 batch_viewspace_point_grad = batch_viewspace_point_grad.unsqueeze(1)
                 
                 if gaussians.gaussian_dim == 4:
                     batch_t_grad = gaussians._t.grad.clone()[:,0].detach()
+                    # sum up, divide by vis_count, multiple bs 
                     batch_t_grad[visibility_filter] = batch_t_grad[visibility_filter] * batch_size / visibility_count[visibility_filter]
                     batch_t_grad = batch_t_grad.unsqueeze(1)
             else:
