@@ -18,7 +18,7 @@ from utils.loss_utils import l1_loss, ssim, msssim
 from gaussian_renderer import render
 import sys
 from scene import Scene, GaussianModel
-from utils.general_utils import safe_state, knn
+from utils.general_utils import safe_state, knn, get_timestamp_str
 import uuid
 from tqdm import tqdm
 from utils.image_utils import psnr, easy_cmap
@@ -260,6 +260,8 @@ def prepare_output_and_logger(args):
         args.model_path = os.path.join("./output/", unique_str[0:10])
         
     # Set up output folder
+    time_str = get_timestamp_str()
+    args.model_path += ("_" + time_str)
     print("Output folder: {}".format(args.model_path))
     os.makedirs(args.model_path, exist_ok = True)
     with open(os.path.join(args.model_path, "cfg_args"), 'w') as cfg_log_f:

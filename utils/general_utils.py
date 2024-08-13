@@ -9,6 +9,7 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
+import time
 import torch
 import sys
 from datetime import datetime
@@ -191,3 +192,9 @@ def fps(x, k):
     new_offset = torch.cumsum(new_offset, dim=0).int()
     idx = furthestsampling(x, offset, new_offset).long()
     return idx
+
+def get_timestamp_str():
+    timestamp = time.time()
+    time_struct = time.localtime(timestamp)
+    time_str = time.strftime("%m-%d-%H:%M:%S", time_struct)
+    return time_str
