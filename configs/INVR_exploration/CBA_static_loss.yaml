@@ -10,8 +10,8 @@ exhaust_test: True
 
 ModelParams:
   sh_degree: 3
-  source_path: "/work/Users/lisicheng/Dataset/INVR_4DGS_fdu/CBA/"
-  model_path: "output/INVR/CBA_dens_250"
+  source_path: "/work/Users/lisicheng/Dataset/INVR_n3d_like/CBA/"
+  model_path: "output/INVR_exploration/CBA_static_loss"
   images: "images"
   resolution: 1 # change from 2 to 1
   white_background: False
@@ -58,3 +58,4 @@ OptimizationParams:
   lambda_opa_mask: 0.0
   lambda_rigid: 0.0
   lambda_motion: 0.0
+  lambda_static: 0.1

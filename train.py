@@ -21,9 +21,10 @@ from scene import Scene, GaussianModel
 from utils.general_utils import safe_state, knn, get_timestamp_str
 import uuid
 from tqdm import tqdm
+from copy import deepcopy
 from utils.image_utils import psnr, easy_cmap
 from argparse import ArgumentParser, Namespace
-from arguments import ModelParams, PipelineParams, OptimizationParams
+from arguments import ModelParams, PipelineParams, OptimizationParams, CompressionParams, get_compression_cfg
 from torchvision.utils import make_grid
 import numpy as np
 from omegaconf import OmegaConf
@@ -35,8 +36,11 @@ try:
 except ImportError:
     TENSORBOARD_FOUND = False
 
+from compression.compression_exp import run_compressions, run_decompressions
+from compression.decompress import decompress_all_to_ply
+
 def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint, debug_from,
-             gaussian_dim, time_duration, num_pts, num_pts_ratio, rot_4d, force_sh_3d, batch_size):
+             gaussian_dim, time_duration, num_pts, num_pts_ratio, rot_4d, force_sh_3d, batch_size, compression_param):
     
     if dataset.frame_ratio > 1:
         time_duration = [time_duration[0] / dataset.frame_ratio,  time_duration[1] / dataset.frame_ratio]
@@ -48,8 +52,19 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     gaussians.training_setup(opt)
     
     if checkpoint:
+        print("Start loading model")
         (model_params, first_iter) = torch.load(checkpoint)
         gaussians.restore(model_params, opt)
+        print("Finish loading model")
+    
+    # ----------------------
+    # SSGS
+    if compression_param.sorting.enabled:
+        gaussians.prune_to_square_shape()
+        gaussians.sort_into_grid(compression_param.sorting, True)
+
+    # debug_viewer = TrainingViewer(debug_view=compress_cfg.local_window_debug_view.view_id)
+    # ----------------------
 
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
@@ -80,7 +95,6 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     training_dataloader = DataLoader(training_dataset, batch_size=batch_size, shuffle=True, num_workers=12 if dataset.dataloader else 0, collate_fn=lambda x: x, drop_last=True)
      
     iteration = first_iter
-    import pdb; pdb.set_trace()
     while iteration < opt.iterations + 1:
         for batch_data in training_dataloader:
             iteration += 1
@@ -166,6 +180,32 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 batch_radii.append(radii)
                 batch_visibility_filter.append(visibility_filter)
 
+            # ----------------------
+            # SSGS
+            if compression_param.neighbor_loss.lambda_neighbor > 0:
+                
+                nb_losses = []
+                wandb_log = {}
+                
+                attr_getter_fn = gaussians.get_activated_attr_flat if compression_param.neighbor_loss.activated else gaussians.get_attr_flat
+
+                weight_sum = sum(vars(compression_param.neighbor_loss.weights).values())
+                for attr_name, attr_weight in vars(compression_param.neighbor_loss.weights).items():
+                    if attr_weight > 0:
+                        nb_losses.append(gaussians.neighborloss_2d(attr_getter_fn(attr_name), compression_param.neighbor_loss) * attr_weight / weight_sum)
+                        wandb_log[f"neighbor_loss/{attr_name}"] = nb_losses[-1]
+                    
+                nb_loss = compression_param.neighbor_loss.lambda_neighbor * sum(nb_losses)
+                
+                # TODO: loss log
+                # if iteration % compression_param.run.log_nb_loss_interval == 0:
+                #     wandb.log(wandb_log, step=iteration)
+            else:
+                nb_loss = torch.tensor(0.0)
+            
+            nb_loss.backward()
+            # ----------------------
+
             if batch_size > 1:
                 visibility_count = torch.stack(batch_visibility_filter,1).sum(1) # shape: [pts_num], values in rnage: [0, 4]
                 visibility_filter = visibility_count > 0
@@ -229,6 +269,29 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 if (iteration in saving_iterations):
                     print("\n[ITER {}] Saving Gaussians".format(iteration))
                     scene.save(iteration)
+                
+                # Compression
+                if (iteration in compression_param.compress_iterations):
+                    print("\n[ITER {}] Compressing Gaussians".format(iteration))
+                    compr_path = os.path.join(scene.model_path, "compression", f"iteration_{iteration}")
+                    
+                    # enable compression of non-sorted gaussians without affecting results
+                    gaussians_to_compress = deepcopy(gaussians)
+                    gaussians_to_compress.prune_to_square_shape()
+
+                    compress_cfg_details = OmegaConf.load("./configs/post_training_compression.yaml")
+                    
+                    compr_results = run_compressions(gaussians_to_compress, compr_path, OmegaConf.to_container(compress_cfg_details))
+                    # wandb.log(compr_results, step=iteration)
+
+                    for compr_name, decompressed_gaussians in run_decompressions(compr_path):
+                        test_psnr = training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background), loss_dict)
+                
+                        # training_report(compress_cfg, iteration, scene, decompressed_gaussians, (compress_cfg.pipeline, background), log_name=f"cmpr_{compr_name}", log_GT=False)
+                    
+                    # decompress plys in last compression iteration
+                    if iteration == max(compression_param.compress_iterations):
+                        decompress_all_to_ply(compr_path)
 
                 # Densification
                 if iteration < opt.densify_until_iter and (opt.densify_until_num_points < 0 or gaussians.get_xyz.shape[0] < opt.densify_until_num_points):
@@ -243,13 +306,21 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                         size_threshold = 20 if iteration > opt.opacity_reset_interval else None
                         gaussians.densify_and_prune(opt.densify_grad_threshold, opt.thresh_opa_prune, scene.cameras_extent, size_threshold, opt.densify_grad_t_threshold)
                     
+                    if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
+                        # ----------------------
+                        # SSGS
+                        if compression_param.sorting.enabled:
+                            gaussians.prune_to_square_shape()
+                            gaussians.sort_into_grid(compression_param.sorting, True)
+                        # ----------------------
+
                     if iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and iteration == opt.densify_from_iter):
                         gaussians.reset_opacity()
                         
                 # Optimizer step
                 if iteration < opt.iterations:
                     gaussians.optimizer.step()
-                    gaussians.optimizer.zero_grad(set_to_none = True)
+                    gaussians.optimizer.zero_grad(set_to_none = True) 
                     if pipe.env_map_res and iteration < pipe.env_optimize_until:
                         env_map_optimizer.step()
                         env_map_optimizer.zero_grad(set_to_none = True)
@@ -394,6 +465,8 @@ if __name__ == "__main__":
     for k in cfg.keys():
         recursive_merge(k, cfg)
         
+    cp = get_compression_cfg('./configs/compression_in_training.yaml')
+
     if args.exhaust_test:
         args.test_iterations = args.test_iterations + [i for i in range(0,op.iterations,3000)]
     
@@ -406,7 +479,7 @@ if __name__ == "__main__":
 
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
     training(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.start_checkpoint, args.debug_from,
-             args.gaussian_dim, args.time_duration, args.num_pts, args.num_pts_ratio, args.rot_4d, args.force_sh_3d, args.batch_size)
+             args.gaussian_dim, args.time_duration, args.num_pts, args.num_pts_ratio, args.rot_4d, args.force_sh_3d, args.batch_size, cp)
 
     # All done
     print("\nTraining complete.")

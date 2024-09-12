@@ -25,7 +25,7 @@ def readImages(renders_dir, gt_dir):
     renders = []
     gts = []
     image_names = []
-    for fname in tqdm(sorted(os.listdir(renders_dir))):
+    for fname in tqdm(sorted(filter(lambda f: not f.endswith(".mp4"), os.listdir(renders_dir)))):
         render = Image.open(renders_dir / fname)
         gt = Image.open(gt_dir / fname)
         # renders.append(tf.to_tensor(render).unsqueeze(0)[:, :3, :, :].cuda())
@@ -71,7 +71,7 @@ def evaluate(model_paths):
                 gt_dir = method_dir/ "gt"
                 renders_dir = method_dir / "renders"
                 renders, gts, image_names = readImages(renders_dir, gt_dir)
-                import pdb; pdb.set_trace()
+                # import pdb; pdb.set_trace()
 
                 ssims = []
                 psnrs = []

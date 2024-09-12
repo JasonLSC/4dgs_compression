@@ -1,0 +1,39 @@
+compress_iterations: [7000, 15000, 30000]
+neighbor_loss:
+  # set to 0 to disable neighbor loss
+  lambda_neighbor: 1.0
+
+  normalize: false
+  activated: false
+
+  # "mse" or "huber"
+  loss_fn: "huber"
+
+  blur:
+    kernel_size: 5
+    sigma: 3.0
+
+  weights:
+    xyz: 0.0
+    features_dc: 0.0
+    features_rest: 0.0
+
+    # not used: let individual Gaussians die out if they wish
+    opacity: 1.0
+    scaling: 0.0
+    rotation: 10.0
+sorting:
+  enabled: true
+  normalize: true
+  activated: true
+  shuffle: true
+
+  improvement_break: 0.0001
+
+  weights:
+    xyz: 1.0
+    features_dc: 1.0
+    features_rest: 0.0
+    opacity: 0.0
+    scaling: 1.0
+    rotation: 0.0

@@ -106,6 +106,12 @@ class OptimizationParams(ParamGroup):
         self.lambda_motion = 0.0
         super().__init__(parser, "Optimization Parameters")
 
+class CompressionParams(ParamGroup):
+    def __init__(self, parser):
+        self.use_compression = False
+        self.lambda_neighbor = 0 # if it > 0, use neighbour loss, otherwise do not use
+        
+
 def get_combined_args(parser : ArgumentParser):
     cmdlne_string = sys.argv[1:]
     cfgfile_string = "Namespace()"
@@ -127,3 +133,18 @@ def get_combined_args(parser : ArgumentParser):
         if v != None:
             merged_dict[k] = v
     return Namespace(**merged_dict)
+
+def get_compression_cfg(cfg_file='./configs/compression_in_training.yaml'):
+    import yaml
+    with open(cfg_file, 'r') as file:
+        compression_param = yaml.safe_load(file)
+        class DictToClass:
+            def __init__(self, dictionary):
+                for key, value in dictionary.items():
+                    if isinstance(value, dict):
+                        setattr(self, key, DictToClass(value))
+                    else:
+                        setattr(self, key, value)
+        cp = DictToClass(compression_param) # 'cp' means CompressionParams
+    
+    return cp

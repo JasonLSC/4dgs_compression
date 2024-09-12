@@ -42,7 +42,7 @@ except ImportError:
     TENSORBOARD_FOUND = False
 
 def rendering(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint, debug_from,
-             gaussian_dim, time_duration, num_pts, num_pts_ratio, rot_4d, force_sh_3d, batch_size):
+             gaussian_dim, time_duration, num_pts, num_pts_ratio, rot_4d, force_sh_3d, batch_size, decompress=False):
     
     if dataset.frame_ratio > 1:
         time_duration = [time_duration[0] / dataset.frame_ratio,  time_duration[1] / dataset.frame_ratio]
@@ -72,7 +72,18 @@ def rendering(dataset, opt, pipe, testing_iterations, saving_iterations, checkpo
             gs_lifetime = (gaussians.get_cov_t(1).sqrt()*6).cpu()
             torch.save(gs_lifetime, os.path.join(scene.model_path, 'gs_lifetime.pth'))
 
-    test_psnr = rendering_report(None, 30000, None, None, l1_loss, None, None, scene, render, (pipe, background), None)
+    if decompress:
+        from compression.compression_exp import run_compressions, run_decompressions
+        # import pdb; pdb.set_trace()
+        for decompress_path, decompressed_gaussian in run_decompressions(os.path.join(os.path.dirname(args.start_checkpoint), 
+                                                                                      'compression', 
+                                                                                      'post_training')): # 'iter_30000'
+            scene.gaussians = decompressed_gaussian
+            test_psnr = rendering_report(None, 30000, None, None, l1_loss, None, None, scene, render, (pipe, background), None)
+            import pdb; pdb.set_trace()
+
+    else:
+        test_psnr = rendering_report(None, 30000, None, None, l1_loss, None, None, scene, render, (pipe, background), None)
 
          
 
@@ -184,7 +195,7 @@ def rendering_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_
     # concat frames from test views to form videos
     test_view_ids = [os.path.basename(vid)[:3] for vid in sorted(glob.glob(save_renders+"/*_0000.png"))]
     for vid in test_view_ids:
-        cmd = f"ffmpeg -framerate 30 -i {save_renders}/{vid}_%04d.png -c:v libx264 -preset veryslow -crf 18 {save_renders}/{vid}.mp4"
+        cmd = f"ffmpeg -framerate 30 -i {save_renders}/{vid}_%04d.png -c:v libx264 -preset veryslow -crf 18 -pix_fmt yuv420p {save_renders}/{vid}.mp4"
         os.system(cmd)
     
     return psnr_test_iter
@@ -219,6 +230,8 @@ if __name__ == "__main__":
     parser.add_argument("--batch_size", type=int, default=1)
     parser.add_argument("--seed", type=int, default=6666)
     parser.add_argument("--exhaust_test", action="store_true")
+
+    parser.add_argument("--decompress", action="store_true")
     
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
@@ -246,7 +259,7 @@ if __name__ == "__main__":
 
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
     rendering(lp.extract(args), op.extract(args), pp.extract(args), args.test_iterations, args.save_iterations, args.start_checkpoint, args.debug_from,
-             args.gaussian_dim, args.time_duration, args.num_pts, args.num_pts_ratio, args.rot_4d, args.force_sh_3d, args.batch_size)
+             args.gaussian_dim, args.time_duration, args.num_pts, args.num_pts_ratio, args.rot_4d, args.force_sh_3d, args.batch_size, args.decompress)
 
     # All done
     print("\nRendering complete.")
