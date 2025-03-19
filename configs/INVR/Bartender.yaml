@@ -25,7 +25,7 @@ ModelParams:
 
 PipelineParams:
   convert_SHs_python: False
-  compute_cov3D_python: False
+  compute_cov3D_python: True
   debug: False
   env_map_res: 0
   env_optimize_until: 1000000000

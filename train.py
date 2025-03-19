@@ -14,7 +14,7 @@ import random
 import torch
 from torch import nn
 torch.multiprocessing.set_sharing_strategy('file_system')
-from utils.loss_utils import l1_loss, ssim, msssim
+from utils.loss_utils import l1_loss, ssim, msssim, pruning_loss
 from gaussian_renderer import render
 import sys
 from scene import Scene, GaussianModel
@@ -47,7 +47,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
-    gaussians = GaussianModel(dataset.sh_degree, gaussian_dim=gaussian_dim, time_duration=time_duration, rot_4d=rot_4d, force_sh_3d=force_sh_3d, sh_degree_t=2 if pipe.eval_shfs_4d else 0)
+    gaussians = GaussianModel(dataset.sh_degree, gaussian_dim=gaussian_dim, time_duration=time_duration, rot_4d=rot_4d, force_sh_3d=force_sh_3d, sh_degree_t=2 if pipe.eval_shfs_4d else 0, pruning_flag=compression_param.pruning.enabled)
     scene = Scene(dataset, gaussians, num_pts=num_pts, num_pts_ratio=num_pts_ratio, time_duration=time_duration)
     gaussians.training_setup(opt)
     
@@ -130,6 +130,11 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 Ll1 = l1_loss(image, gt_image)
                 Lssim = 1.0 - ssim(image, gt_image)
                 loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * Lssim
+
+                if compression_param.pruning.enabled and compression_param.pruning.lambda_pruning > 0:
+                    # see the paper "Compact 3D Gaussian Splatting for Static and Dynamic Radiance Fields"
+                    Lpruning = pruning_loss(pc=gaussians)
+                    loss = loss + compression_param.pruning.lambda_pruning * Lpruning
                 
                 ###### opa mask Loss ######
                 if opt.lambda_opa_mask > 0:
@@ -290,6 +295,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                         # training_report(compress_cfg, iteration, scene, decompressed_gaussians, (compress_cfg.pipeline, background), log_name=f"cmpr_{compr_name}", log_GT=False)
                     
                     # decompress plys in last compression iteration
+                    # TODO: solve the bug
                     if iteration == max(compression_param.compress_iterations):
                         decompress_all_to_ply(compr_path)
 
@@ -305,8 +311,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                     if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
                         size_threshold = 20 if iteration > opt.opacity_reset_interval else None
                         gaussians.densify_and_prune(opt.densify_grad_threshold, opt.thresh_opa_prune, scene.cameras_extent, size_threshold, opt.densify_grad_t_threshold)
-                    
-                    if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
+
+                        # Learning-based pruning
+                        gaussians.learning_based_pruning()
+
                         # ----------------------
                         # SSGS
                         if compression_param.sorting.enabled:
@@ -316,7 +324,17 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
                     if iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and iteration == opt.densify_from_iter):
                         gaussians.reset_opacity()
-                        
+                
+                # Learning-based pruning after the stoppage of densification
+                if iteration > opt.densify_until_iter and (iteration % opt.densification_interval == 0 and gaussians.pruning_enabled):
+                    gaussians.learning_based_pruning()
+                    # ----------------------
+                    # Once the num of GS changes, always need to prune to square shape
+                    if compression_param.sorting.enabled:
+                        gaussians.prune_to_square_shape()
+                        gaussians.sort_into_grid(compression_param.sorting, True)
+                    # ----------------------
+
                 # Optimizer step
                 if iteration < opt.iterations:
                     gaussians.optimizer.step()

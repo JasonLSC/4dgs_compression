@@ -24,3 +24,4 @@ eggs/
 *.ipynb
 scripts
 sh/
+doc/

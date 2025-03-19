@@ -259,7 +259,7 @@ int CudaRasterizer::Rasterizer::forward(
 	CHECK_CUDA(FORWARD::preprocess(
 		P, D, D_t, M,
 		means3D,
-		ts, // 4D:? not sure whether it is "cur_timestamp" or "mu_t"
+		ts, // 4D: it is "mu_t"
 		(glm::vec3*)scales,
 		scales_t, // 4D: scaling value of "t" axis
 		scale_modifier,
@@ -272,7 +272,7 @@ int CudaRasterizer::Rasterizer::forward(
 		colors_precomp,
 		viewmatrix, projmatrix,
 		(glm::vec3*)cam_pos,
-		timestamp, // 4D:? not sure whether it is "cur_timestamp" or "mu_t"
+		timestamp, // 4D: it is "cur_timestamp"
 		time_duration, // new term
 		rot_4d, gaussian_dim, force_sh_3d, // new term
 		width, height,

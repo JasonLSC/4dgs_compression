@@ -9,6 +9,7 @@
 # For inquiries contact  george.drettakis@inria.fr
 #
 
+from sympy import S
 import torch
 import numpy as np
 from utils.general_utils import inverse_sigmoid, get_expon_lr_func, build_rotation, build_rotation_4d, build_scaling_rotation_4d
@@ -83,8 +84,15 @@ class GaussianModel:
 
         self.rotation_activation = torch.nn.functional.normalize
 
-
-    def __init__(self, sh_degree : int, gaussian_dim : int = 3, time_duration: list = [-0.5, 0.5], rot_4d: bool = False, force_sh_3d: bool = False, sh_degree_t : int = 0, disable_xyz_log_activation : bool = True):
+    def __init__(self, 
+                 sh_degree : int, 
+                 gaussian_dim : int = 3, 
+                 time_duration: list = [-0.5, 0.5], 
+                 rot_4d: bool = False, 
+                 force_sh_3d: bool = False, 
+                 sh_degree_t : int = 0, 
+                 disable_xyz_log_activation : bool = True, 
+                 pruning_flag : bool = False):
         # spatial (3DGS) params
         self.active_sh_degree = 0
         self.max_sh_degree = sh_degree  
@@ -120,6 +128,14 @@ class GaussianModel:
         
         self.active_sh_degree_t = 0
         self.max_sh_degree_t = sh_degree_t
+
+        # pruning
+        self.pruning_enabled = pruning_flag
+        if pruning_flag:
+            self._pruning_mask = torch.empty(0)
+            self.pruning_mask_activation = torch.sigmoid
+            self.pruning_thres = 0.5
+            print("[Info] Training-aware pruning is enabled.")
         
         self.setup_functions()
 
@@ -263,6 +279,12 @@ class GaussianModel:
         elif self.gaussian_dim == 4 and self.max_sh_degree_t > 0:
             return (self.max_sh_degree+1)**2 * (self.max_sh_degree_t + 1)
     
+    @property
+    def get_pruning_mask(self):
+        activated_pruning_value = self.pruning_mask_activation(self._pruning_mask)
+        return ((activated_pruning_value > self.pruning_thres).float() - activated_pruning_value).detach() \
+                    + activated_pruning_value
+    
     def get_cov_t(self, scaling_modifier = 1):
         if self.rot_4d:
             L = build_scaling_rotation_4d(scaling_modifier * self.get_scaling_xyzt, self._rotation, self._rotation_r)
@@ -334,6 +356,11 @@ class GaussianModel:
             if self.rot_4d:
                 self._rotation_r = nn.Parameter(rots_r.requires_grad_(True))
 
+        # pruning related
+        if self.pruning_enabled:
+            pruning_mask = inverse_sigmoid(0.8 * torch.ones((fused_point_cloud.shape[0], 1), dtype=torch.float, device="cuda"))
+            self._pruning_mask = nn.Parameter(pruning_mask.requires_grad_(True))
+
     def create_from_pth(self, path, spatial_lr_scale):
         assert self.gaussian_dim == 4 and self.rot_4d
         self.spatial_lr_scale = spatial_lr_scale
@@ -363,6 +390,10 @@ class GaussianModel:
         self._scaling_t = nn.Parameter(scales_t.requires_grad_(True))
         self._rotation_r = nn.Parameter(rots_r.requires_grad_(True))
 
+        if self.pruning_enabled:
+            pruning_mask = init_4d_gaussian['pruning_mask'].cuda()
+            self._pruning_mask = nn.Parameter(pruning_mask.requires_grad_(True))
+
     def training_setup(self, training_args):
         self.percent_dense = training_args.percent_dense
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
@@ -384,6 +415,8 @@ class GaussianModel:
             l.append({'params': [self._scaling_t], 'lr': training_args.scaling_lr, "name": "scaling_t"})
             if self.rot_4d:
                 l.append({'params': [self._rotation_r], 'lr': training_args.rotation_lr, "name": "rotation_r"})
+        if self.pruning_enabled:
+            l.append({'params': [self._pruning_mask], 'lr': 1e-3, "name": "pruning_mask"})
 
         self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
         self.xyz_scheduler_args = get_expon_lr_func(lr_init=training_args.position_lr_init*self.spatial_lr_scale,
@@ -463,6 +496,9 @@ class GaussianModel:
             if self.rot_4d:
                 self._rotation_r = optimizable_tensors['rotation_r']
             self.t_gradient_accum = self.t_gradient_accum[valid_points_mask]
+        
+        if self.pruning_enabled:
+            self._pruning_mask = optimizable_tensors['pruning_mask']
 
     def cat_tensors_to_optimizer(self, tensors_dict):
         optimizable_tensors = {}
@@ -486,7 +522,7 @@ class GaussianModel:
 
         return optimizable_tensors
 
-    def densification_postfix(self, new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_t, new_scaling_t, new_rotation_r):
+    def densification_postfix(self, new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_t, new_scaling_t, new_rotation_r, new_pruning_mask):
         d = {"xyz": new_xyz,
         "f_dc": new_features_dc,
         "f_rest": new_features_rest,
@@ -499,6 +535,8 @@ class GaussianModel:
             d["scaling_t"] = new_scaling_t
             if self.rot_4d:
                 d["rotation_r"] = new_rotation_r
+        if self.pruning_enabled:
+            d['pruning_mask'] = new_pruning_mask
 
         optimizable_tensors = self.cat_tensors_to_optimizer(d)
         self._xyz = optimizable_tensors["xyz"]
@@ -518,6 +556,9 @@ class GaussianModel:
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
+        if self.pruning_enabled:
+            self._pruning_mask = optimizable_tensors["pruning_mask"]
+
     def densify_and_split(self, grads, grad_threshold, scene_extent, grads_t, grad_t_threshold, N=2):
         n_init_points = self.get_xyz.shape[0]
         # Extract points that satisfy the gradient condition
@@ -533,6 +574,10 @@ class GaussianModel:
         new_features_dc = self._features_dc[selected_pts_mask].repeat(N,1,1)
         new_features_rest = self._features_rest[selected_pts_mask].repeat(N,1,1)
         new_opacity = self._opacity[selected_pts_mask].repeat(N,1)
+        if self.pruning_enabled:
+            new_pruning_mask = self._pruning_mask[selected_pts_mask].repeat(N,1)
+        else:
+            new_pruning_mask = None
         
         if not self.rot_4d:
             stds = self.get_scaling[selected_pts_mask].repeat(N,1)
@@ -562,7 +607,7 @@ class GaussianModel:
             new_scaling_t = self.scaling_inverse_activation(self.get_scaling_t[selected_pts_mask].repeat(N,1) / (0.8*N))
             new_rotation_r = self._rotation_r[selected_pts_mask].repeat(N,1)
 
-        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation, new_t, new_scaling_t, new_rotation_r)
+        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation, new_t, new_scaling_t, new_rotation_r, new_pruning_mask)
 
         prune_filter = torch.cat((selected_pts_mask, torch.zeros(N * selected_pts_mask.sum(), device="cuda", dtype=bool)))
         self.prune_points(prune_filter)
@@ -583,13 +628,16 @@ class GaussianModel:
         new_t = None
         new_scaling_t = None
         new_rotation_r = None
+        new_pruning_mask = None
         if self.gaussian_dim == 4:
             new_t = self._t[selected_pts_mask]
             new_scaling_t = self._scaling_t[selected_pts_mask]
             if self.rot_4d:
                 new_rotation_r = self._rotation_r[selected_pts_mask]
+        if self.pruning_enabled:
+            new_pruning_mask = self._pruning_mask[selected_pts_mask]
 
-        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_t, new_scaling_t, new_rotation_r)
+        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_t, new_scaling_t, new_rotation_r, new_pruning_mask)
 
     def densify_and_prune(self, max_grad, min_opacity, extent, max_screen_size, max_grad_t=None, prune_only=False):
         if not prune_only:
@@ -609,7 +657,20 @@ class GaussianModel:
             big_points_vs = self.max_radii2D > max_screen_size
             big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent
             prune_mask = torch.logical_or(torch.logical_or(prune_mask, big_points_vs), big_points_ws)
-        self.prune_points(prune_mask)
+            # if self.pruning_enabled:
+            #     learned_pruning_mask = self.pruning_mask_activation(self._pruning_mask) < self.pruning_thres
+            #     prune_mask = torch.logical_or(prune_mask, learned_pruning_mask)
+
+        self.prune_points(prune_mask) # invaild pts: 1, vaild pts:0 
+
+        torch.cuda.empty_cache()
+    
+    def learning_based_pruning(self):
+        prune_mask = (self.pruning_mask_activation(self._pruning_mask) < self.pruning_thres).squeeze()
+        # prune_mask = torch.logical_or(prune_mask, learned_pruning_mask)
+        # import pdb; pdb.set_trace()
+        self.prune_points(prune_mask) # invaild pts: 1, vaild pts:0 
+        print(f"Removing {prune_mask.sum().item()}/{len(prune_mask)} gaussians via learning-based pruning. ({prune_mask.sum().item()/len(prune_mask)*100:.4f}%)")
 
         torch.cuda.empty_cache()
 
@@ -658,6 +719,9 @@ class GaussianModel:
                 if self.rot_4d:
                     self._rotation_r = optimizable_tensors['rotation_r']
                 self.t_gradient_accum = self.t_gradient_accum[indices]
+            
+            if self.pruning_enabled:
+                self._pruning_mask = optimizable_tensors['pruning_mask']
 
         else:
             self._xyz = self._xyz[indices]
@@ -673,6 +737,9 @@ class GaussianModel:
                 if self.rot_4d:
                     self._rotation_r = optimizable_tensors['rotation_r']
                 self.t_gradient_accum = self.t_gradient_accum[indices]
+            
+            if self.pruning_enabled:
+                self._pruning_mask = optimizable_tensors['pruning_mask']
 
     def prune_to_square_shape(self, sort_by_opacity=True, verbose=True):
         num_gaussians = self._xyz.shape[0]

@@ -16,7 +16,12 @@ from .diff_gaussian_rasterization import GaussianRasterizationSettings, Gaussian
 from scene.gaussian_model import GaussianModel
 from utils.sh_utils import eval_sh, eval_shfs_4d
 
-def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, override_color = None):
+def render(viewpoint_camera, 
+           pc : GaussianModel, pipe, 
+           bg_color : torch.Tensor, 
+           scaling_modifier = 1.0, 
+           override_color = None,
+           comp_param = None):
     """
     Render the scene. 
     
@@ -58,7 +63,10 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
 
     means3D = pc.get_xyz
     means2D = screenspace_points
-    opacity = pc.get_opacity
+    if not pc.pruning_enabled:
+        opacity = pc.get_opacity
+    else:
+        opacity = pc.get_opacity * pc.get_pruning_mask
 
     # If precomputed 3d covariance is provided, use it. If not, then it will be computed from
     # scaling / rotation by the rasterizer.
@@ -69,8 +77,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     ts = None
     cov3D_precomp = None
 
-    # import pdb; pdb.set_trace()
-    static_dynamic_decomposition = True
+    static_dynamic_decomposition = False
     if pipe.compute_cov3D_python:
         if pc.rot_4d:
             cov3D_precomp, delta_mean, velocity = pc.get_current_covariance_and_mean_offset(scaling_modifier, viewpoint_camera.timestamp)
@@ -84,10 +91,16 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             # marginal_t = torch.clamp_max(marginal_t, 1.0) # NOTE: 这里乘完会大于1，绝对不行——marginal_t应该用个概率而非概率密度 暂时可以clamp一下，后期用积分 —— 2d 也用的clamp
             opacity = opacity * marginal_t
     else:
-        scales = pc.get_scaling
-        rotations = pc.get_rotation
+        if not pc.pruning_enabled:
+            scales = pc.get_scaling 
+        else: # apply pruning mask
+            scales = pc.get_scaling * pc.get_pruning_mask # only apply to scaling and opacity
+        rotations = pc.get_rotation 
         if pc.gaussian_dim == 4:
-            scales_t = pc.get_scaling_t
+            if not pc.pruning_enabled:
+                scales_t = pc.get_scaling_t
+            else:
+                scales_t = pc.get_scaling_t * pc.get_pruning_mask
             ts = pc.get_t
             if pc.rot_4d:
                 rotations_r = pc.get_rotation_r
@@ -121,6 +134,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     flow_2d = torch.zeros_like(pc.get_xyz[:,:2])
     
     # Prefilter
+    import pdb; pdb.set_trace()
     if pipe.compute_cov3D_python and pc.gaussian_dim == 4:
         mask = marginal_t[:,0] > 0.05 # marginal_t 更像是一种权重
         if static_dynamic_decomposition:

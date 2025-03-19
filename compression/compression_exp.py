@@ -109,6 +109,10 @@ def compress_attr(attr_config, gaussians, out_folder):
     
     codec = codecs[attr_method]()
     attr_np = get_attr_numpy(gaussians, attr_name)
+
+    if attr_name == "_rotation" or attr_name == "_rotation_r":
+        draw_hist(attr_np, attr_name, os.path.join(out_folder, f'{attr_name}.png'))
+        # import pdb; pdb.set_trace()
     
     file_name = f"{attr_name}.{codec.file_ending()}"
     out_file = os.path.join(out_folder, file_name)
@@ -120,20 +124,34 @@ def compress_attr(attr_config, gaussians, out_folder):
         # attr_contracted = sc(attr)
         # attr_np = attr_contracted.cpu().numpy()
         attr_np = log_transform(attr_np)
+
+    if attr_config.get('quaternion_normalize', False):
+        norms = np.linalg.norm(attr_np, axis=2) # (sqrt(n), sqrt(n), 4)
+        attr_np = attr_np / norms[:, :, None]
     
     if "quantize" in attr_config:
-        quantization = attr_config["quantize"]
-        min_val = attr_np.min()
-        max_val = attr_np.max()
-        val_range = max_val - min_val
-        # no division by zero
-        if val_range == 0:
-            val_range = 1
-        attr_np_norm = (attr_np - min_val) / (val_range)
-        qpow = 2 ** quantization
-        attr_np_quantized = np.round(attr_np_norm * qpow) / qpow
-        attr_np = attr_np_quantized * (val_range) + min_val
-        attr_np = attr_np.astype(np.float32)
+        if attr_config.get('quaternion_quantize', False):
+            import pdb; pdb.set_trace()
+            quantization = attr_config["quantize"]
+            sign = np.sign(attr_np)
+            attr_np = np.abs(attr_np)
+            qpow = 2 ** (quantization - 1)
+            attr_np_quantized = np.floor(attr_np * qpow) / qpow
+            attr_np = sign * attr_np_quantized
+            
+        else:
+            quantization = attr_config["quantize"]
+            min_val = attr_np.min()
+            max_val = attr_np.max()
+            val_range = max_val - min_val
+            # no division by zero
+            if val_range == 0:
+                val_range = 1
+            attr_np_norm = (attr_np - min_val) / (val_range)
+            qpow = 2 ** quantization
+            attr_np_quantized = np.round(attr_np_norm * qpow) / qpow
+            attr_np = attr_np_quantized * (val_range) + min_val
+            attr_np = attr_np.astype(np.float32)
 
     if attr_config.get('normalize', False):
         min_val, max_val = codec.encode_with_normalization(attr_np, attr_name, out_file, **attr_params)
@@ -161,6 +179,57 @@ def decompress_attr(gaussians, attr_config, compressed_file, min_val, max_val):
     # TODO to device?
     # TODO add grad?
     gaussians.set_attr_from_grid_img(attr_name, decompressed_attr)
+
+
+def draw_hist(input_tensor, attr_name, save_path):
+    import numpy as np
+    import matplotlib.pyplot as plt
+
+    # 示例多维数组（可以替换成你的数据）
+    data = input_tensor  # 例如，一个100x10的二维数组
+
+    # 将多维数组展平成一维数组
+    flat_data = data.flatten()
+
+    # Calculate 1% and 99% percentiles
+    percentile_1 = np.percentile(flat_data, 1)
+    percentile_99 = np.percentile(flat_data, 99)
+
+    # Calculate minimum and maximum values
+    min_value = np.min(flat_data)
+    max_value = np.max(flat_data)
+
+    # Print 1% and 99% percentiles, minimum and maximum values
+    print(f"1% percentile: {percentile_1}")
+    print(f"99% percentile: {percentile_99}")
+    print(f"Minimum value: {min_value}")
+    print(f"Maximum value: {max_value}")
+
+    # Plot the histogram
+    plt.figure(figsize=(10, 6))
+    plt.hist(flat_data, bins=30, color='skyblue', alpha=0.7, edgecolor='black')
+
+    # Mark the 1% and 99% percentiles in the plot
+    plt.axvline(percentile_1, color='red', linestyle='dashed', linewidth=1, label='1% Percentile')
+    plt.axvline(percentile_99, color='green', linestyle='dashed', linewidth=1, label='99% Percentile')
+
+    # Mark the minimum and maximum values in the plot
+    plt.axvline(min_value, color='blue', linestyle='dashed', linewidth=1, label='Minimum Value')
+    plt.axvline(max_value, color='orange', linestyle='dashed', linewidth=1, label='Maximum Value')
+    
+    # Annotate the values on the plot
+    plt.text(percentile_1, plt.gca().get_ylim()[1] * 0.9, f'1%: {percentile_1:.2f}', color='red', ha='center')
+    plt.text(percentile_99, plt.gca().get_ylim()[1] * 0.9, f'99%: {percentile_99:.2f}', color='green', ha='center')
+    plt.text(min_value, plt.gca().get_ylim()[1] * 0.8, f'Min: {min_value:.2f}', color='blue', ha='center')
+    plt.text(max_value, plt.gca().get_ylim()[1] * 0.8, f'Max: {max_value:.2f}', color='orange', ha='center')
+    
+    # 添加标题和标签
+    plt.title(f'Histogram of {attr_name} with 1% and 99% Percentiles')
+    plt.xlabel('Value')
+    plt.ylabel('Frequency')
+    plt.legend()
+
+    plt.savefig(save_path, dpi=300, bbox_inches='tight')
 
 
 def run_single_compression(gaussians, experiment_out_path, experiment_config):
@@ -216,7 +285,7 @@ def run_compressions(gaussians, out_path, compr_exp_config):
         os.makedirs(experiment_out_path, exist_ok=True)
 
         size_bytes = run_single_compression(gaussians, experiment_out_path, experiment)
-        results[f"size_bytes/cmpr_{experiment['name']}"] = size_bytes
+        results[f"{experiment['name']}"] = size_bytes
 
     return results
 
@@ -244,15 +313,20 @@ def run_single_decompression(compressed_dir):
     # model_params = torch.load(checkpoint)
     decompressed_gaussians.restore(checkpoint, None)
     
-
+    import time
+    start_time = time.time()
     for attribute in experiment_config['attributes']:
         attr_name = attribute["name"]
-        if attr_name in ['_features_dc']: # debug only 
+        if attr_name in ['_features_dc', '_xyz', '_t', '_opa', '_scaling', '_scaling_t', '_rotation', '_rotation_r']: # debug only 
         # compressed_bytes = compressed_attrs[attr_name]
             compressed_file = os.path.join(compressed_dir, compr_info.loc[attr_name, "file"])
 
             decompress_attr(decompressed_gaussians, attribute, compressed_file, compr_info.loc[attr_name, "min"], compr_info.loc[attr_name, "max"])
     
+    torch.cuda.synchronize()
+    end_time = time.time()
+    print(f"All decoding time:{end_time - start_time}")
+
     decompressed_gaussians._features_rest.data = torch.zeros(experiment_config['features_rest_shape']).cuda()
 
     return decompressed_gaussians

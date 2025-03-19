@@ -1,18 +1,262 @@
 experiments:
-  - name: "exr_jxl_quant_5_norm"
+  # - name: "copy_from_SOGS"
+  #   attributes:
+  #     - name: "_xyz"
+  #       method: "exr"
+  #       normalize: false
+  #       contract: false
+  #       quantize: 13 # default 13 -> 16
+  #       params:
+  #         compression: "zip"
+  #     - name: "_features_dc"
+  #       method: "jpeg-xl"
+  #       normalize: true
+  #       params:
+  #         level: 90 # default 90
+  #     # - name: "_features_rest"
+  #     #   method: "jpeg-xl"
+  #     #   normalize: true
+  #     #   quantize: 5
+  #     #   params:
+  #     #     level: 101
+  #     - name: "_scaling"
+  #       method: "exr"
+  #       normalize: false
+  #       contract: false
+  #       quantize: 6
+  #       params:
+  #         compression: "none"
+  #     - name: "_rotation"
+  #       method: "exr"
+  #       normalize: false
+  #       quantize: 6 # default 6 -> 8 -> 10
+  #       params:
+  #         compression: "zip"
+  #     - name: "_opacity"
+  #       method: "exr"
+  #       normalize: true
+  #       contract: false
+  #       quantize: 5
+  #       params:
+  #         compression: "none"
+  #     - name: "_t"
+  #       method: "exr"
+  #       normalize: false
+  #       contract: false
+  #       quantize: 13
+  #       params:
+  #         compression: "zip"
+  #     - name: "_scaling_t"
+  #       method: "exr"
+  #       normalize: false
+  #       contract: false
+  #       quantize: 6
+  #       params:
+  #         compression: "none"   
+  #     - name: "_rotation_r"
+  #       method: "exr"
+  #       normalize: false
+  #       quantize: 6 # default 6 -> 8 -> 10
+  #       params:
+  #         compression: "zip"   
+
+  # - name: "exr_jxl_quant_5_norm"
+  #   attributes:
+  #     - name: "_xyz"
+  #       method: "exr"
+  #       normalize: false
+  #       contract: false
+  #       quantize: 16 # default 13 -> 16
+  #       params:
+  #         compression: "zip"
+  #     - name: "_features_dc"
+  #       method: "jpeg-xl"
+  #       normalize: true
+  #       params:
+  #         level: 101 # default 90
+  #     # - name: "_features_rest"
+  #     #   method: "jpeg-xl"
+  #     #   normalize: true
+  #     #   quantize: 5
+  #     #   params:
+  #     #     level: 101
+  #     - name: "_scaling"
+  #       method: "exr"
+  #       normalize: false
+  #       contract: false
+  #       quantize: 6
+  #       params:
+  #         compression: "none"
+  #     - name: "_rotation"
+  #       method: "exr"
+  #       normalize: false
+  #       quantize: 10 # default 6 -> 8 -> 10
+  #       params:
+  #         compression: "zip"
+  #     - name: "_opacity"
+  #       method: "exr"
+  #       normalize: true
+  #       contract: false
+  #       quantize: 5
+  #       params:
+  #         compression: "none"
+  #     - name: "_t"
+  #       method: "exr"
+  #       normalize: false
+  #       contract: false
+  #       quantize: 16
+  #       params:
+  #         compression: "zip"
+  #     - name: "_scaling_t"
+  #       method: "exr"
+  #       normalize: false
+  #       contract: false
+  #       quantize: 6
+  #       params:
+  #         compression: "none"   
+  #     - name: "_rotation_r"
+  #       method: "exr"
+  #       normalize: false
+  #       quantize: 10 # default 6 -> 8 -> 10
+  #       params:
+  #         compression: "zip"   
+  
+  # - name: "exr_jxl_quant_rot_12"
+  #   attributes:
+  #     - name: "_xyz"
+  #       method: "exr"
+  #       normalize: false
+  #       contract: false
+  #       quantize: 16 # default 13 -> 16
+  #       params:
+  #         compression: "zip"
+  #     - name: "_features_dc"
+  #       method: "jpeg-xl"
+  #       normalize: true
+  #       params:
+  #         level: 101 # default 90
+  #     # - name: "_features_rest"
+  #     #   method: "jpeg-xl"
+  #     #   normalize: true
+  #     #   quantize: 5
+  #     #   params:
+  #     #     level: 101
+  #     - name: "_scaling"
+  #       method: "exr"
+  #       normalize: false
+  #       contract: false
+  #       quantize: 6
+  #       params:
+  #         compression: "none"
+  #     - name: "_rotation"
+  #       method: "exr"
+  #       normalize: false
+  #       quantize: 12 # default 6 -> 8 -> 10
+  #       params:
+  #         compression: "zip"
+  #     - name: "_opacity"
+  #       method: "exr"
+  #       normalize: true
+  #       contract: false
+  #       quantize: 5
+  #       params:
+  #         compression: "none"
+  #     - name: "_t"
+  #       method: "exr"
+  #       normalize: false
+  #       contract: false
+  #       quantize: 16
+  #       params:
+  #         compression: "zip"
+  #     - name: "_scaling_t"
+  #       method: "exr"
+  #       normalize: false
+  #       contract: false
+  #       quantize: 6
+  #       params:
+  #         compression: "none"   
+  #     - name: "_rotation_r"
+  #       method: "exr"
+  #       normalize: false
+  #       quantize: 12 # default 6 -> 8 -> 10
+  #       params:
+  #         compression: "zip"   
+  
+  # - name: "exr_jxl_90_quant_rot_12"
+  #   attributes:
+  #     - name: "_xyz"
+  #       method: "exr"
+  #       normalize: false
+  #       contract: false
+  #       quantize: 16 # default 13 -> 16
+  #       params:
+  #         compression: "zip"
+  #     - name: "_features_dc"
+  #       method: "jpeg-xl"
+  #       normalize: true
+  #       params:
+  #         level: 90 # default 90
+  #     # - name: "_features_rest"
+  #     #   method: "jpeg-xl"
+  #     #   normalize: true
+  #     #   quantize: 5
+  #     #   params:
+  #     #     level: 101
+  #     - name: "_scaling"
+  #       method: "exr"
+  #       normalize: false
+  #       contract: false
+  #       quantize: 6
+  #       params:
+  #         compression: "none"
+  #     - name: "_rotation"
+  #       method: "exr"
+  #       normalize: false
+  #       quantize: 12 # default 6 -> 8 -> 10
+  #       params:
+  #         compression: "zip"
+  #     - name: "_opacity"
+  #       method: "exr"
+  #       normalize: true
+  #       contract: false
+  #       quantize: 5
+  #       params:
+  #         compression: "none"
+  #     - name: "_t"
+  #       method: "exr"
+  #       normalize: false
+  #       contract: false
+  #       quantize: 16
+  #       params:
+  #         compression: "zip"
+  #     - name: "_scaling_t"
+  #       method: "exr"
+  #       normalize: false
+  #       contract: false
+  #       quantize: 6
+  #       params:
+  #         compression: "none"   
+  #     - name: "_rotation_r"
+  #       method: "exr"
+  #       normalize: false
+  #       quantize: 12 # default 6 -> 8 -> 10
+  #       params:
+  #         compression: "zip"   
+
+  - name: "exr_jxl_100_quant_rot_vec_new_norm_10"
     attributes:
       - name: "_xyz"
         method: "exr"
         normalize: false
         contract: false
-        quantize: 13
+        quantize: 16 # default 13 -> 16
         params:
           compression: "zip"
       - name: "_features_dc"
         method: "jpeg-xl"
         normalize: true
         params:
-          level: 101 # default 90
+          level: 100 # default 90
       # - name: "_features_rest"
       #   method: "jpeg-xl"
       #   normalize: true
@@ -28,8 +272,10 @@ experiments:
           compression: "none"
       - name: "_rotation"
         method: "exr"
+        quaternion_normalize: true
+        quaternion_quantize: true
         normalize: false
-        quantize: 6
+        quantize: 10 # default 6 -> 8 -> 10 -> 9
         params:
           compression: "zip"
       - name: "_opacity"
@@ -43,7 +289,7 @@ experiments:
         method: "exr"
         normalize: false
         contract: false
-        quantize: 13
+        quantize: 16
         params:
           compression: "zip"
       - name: "_scaling_t"
@@ -55,48 +301,9 @@ experiments:
           compression: "none"   
       - name: "_rotation_r"
         method: "exr"
+        quaternion_normalize: true
+        quaternion_quantize: true
         normalize: false
-        quantize: 6
+        quantize: 10 # default 6 -> 8 -> 10 -> 9
         params:
           compression: "zip"   
-
-  # - name: "jxl_quant_sh"
-  #   attributes:
-  #     - name: "_xyz"
-  #       method: "jpeg-xl"
-  #       normalize: true
-  #       quantize: 14
-  #       params:
-  #         # compression: "zip"
-  #         level: 101
-  #     - name: "_features_dc"
-  #       method: "jpeg-xl"
-  #       normalize: true
-  #       params:
-  #         level: 100
-  #     # - name: "_features_rest"
-  #     #   method: "jpeg-xl"
-  #     #   normalize: true
-  #     #   quantize: 5
-  #     #   params:
-  #     #     level: 101
-  #     - name: "_scaling"
-  #       method: "jpeg-xl"
-  #       normalize: false
-  #       contract: false
-  #       quantize: 6
-  #       params:
-  #         level: 101
-  #     - name: "_rotation"
-  #       method: "jpeg-xl"
-  #       normalize: true
-  #       quantize: 6
-  #       params:
-  #         level: 101
-  #     - name: "_opacity"
-  #       method: "jpeg-xl"
-  #       normalize: true
-  #       contract: false
-  #       quantize: 6
-  #       params:
-  #         level: 101 # lossless

@@ -15,6 +15,8 @@ from torch.autograd import Variable
 from math import exp
 from torchmetrics import MultiScaleStructuralSimilarityIndexMeasure
 
+from scene.gaussian_model import GaussianModel
+
 def l1_loss(network_output, gt):
     return torch.abs((network_output - gt)).mean()
 
@@ -69,3 +71,6 @@ def msssim(rgb, gts):
     # assert (rgb.max() <= 1.05 and rgb.min() >= -0.05)
     # assert (gts.max() <= 1.05 and gts.min() >= -0.05)
     return ms_ssim(rgb, gts).item()
+
+def pruning_loss(pc: GaussianModel):
+    return pc.pruning_mask_activation(pc._pruning_mask).mean()

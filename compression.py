@@ -1,3 +1,4 @@
+import json
 import sys
 from argparse import ArgumentParser
 from omegaconf import OmegaConf
@@ -63,7 +64,8 @@ if __name__ == "__main__":
 
     gaussians = GaussianModel(dataset.sh_degree, gaussian_dim=args.gaussian_dim, 
                               time_duration=time_duration, rot_4d=args.rot_4d, 
-                              force_sh_3d=args.force_sh_3d, sh_degree_t=2 if pipe.eval_shfs_4d else 0)
+                              force_sh_3d=args.force_sh_3d, sh_degree_t=2 if pipe.eval_shfs_4d else 0,
+                              pruning_flag=cp.pruning.enabled)
     gaussians.training_setup(opt) # TODO: discard it in the future 
 
     
@@ -81,3 +83,6 @@ if __name__ == "__main__":
     compress_cfg_details = OmegaConf.load("./configs/post_training_compression.yaml")
 
     compr_results = run_compressions(gaussians, compr_path, OmegaConf.to_container(compress_cfg_details))
+
+    with open(os.path.join(compr_path, 'filesize.json'), 'w') as fp:
+        json.dump(compr_results, fp)

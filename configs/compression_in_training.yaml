@@ -37,3 +37,6 @@ sorting:
     opacity: 0.0
     scaling: 1.0
     rotation: 0.0
+pruning:
+  enabled: true
+  lambda_pruning: 0.0005 # TBD

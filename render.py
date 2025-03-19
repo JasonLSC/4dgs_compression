@@ -11,6 +11,7 @@
 
 # Sicheng modified @ July, 4th, 2024
 
+import json
 import os
 import random
 import torch
@@ -26,6 +27,7 @@ from PIL import Image
 import uuid
 from tqdm import tqdm
 from utils.image_utils import psnr, easy_cmap
+from utils.general_utils import get_timestamp_str
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams
 from torchvision.utils import make_grid
@@ -35,6 +37,9 @@ import time
 from omegaconf import OmegaConf
 from omegaconf.dictconfig import DictConfig
 from torch.utils.data import DataLoader
+
+import fpnge
+
 try:
     from torch.utils.tensorboard import SummaryWriter
     TENSORBOARD_FOUND = True
@@ -48,7 +53,7 @@ def rendering(dataset, opt, pipe, testing_iterations, saving_iterations, checkpo
         time_duration = [time_duration[0] / dataset.frame_ratio,  time_duration[1] / dataset.frame_ratio]
     
     first_iter = 0
-    tb_writer = prepare_output_and_logger(dataset)
+    
     gaussians = GaussianModel(dataset.sh_degree, gaussian_dim=gaussian_dim, time_duration=time_duration, rot_4d=rot_4d, force_sh_3d=force_sh_3d, sh_degree_t=2 if pipe.eval_shfs_4d else 0)
     scene = Scene(dataset, gaussians, num_pts=num_pts, num_pts_ratio=num_pts_ratio, time_duration=time_duration)
     gaussians.training_setup(opt)
@@ -56,7 +61,7 @@ def rendering(dataset, opt, pipe, testing_iterations, saving_iterations, checkpo
     if checkpoint:
         print("Loading ckpt!")
         (model_params, first_iter) = torch.load(checkpoint)
-        gaussians.restore(model_params, opt)
+        gaussians.restore(model_params, None)
         print("Finsh loading ckpt!")
 
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
@@ -72,52 +77,68 @@ def rendering(dataset, opt, pipe, testing_iterations, saving_iterations, checkpo
             gs_lifetime = (gaussians.get_cov_t(1).sqrt()*6).cpu()
             torch.save(gs_lifetime, os.path.join(scene.model_path, 'gs_lifetime.pth'))
 
+
     if decompress:
         from compression.compression_exp import run_compressions, run_decompressions
         # import pdb; pdb.set_trace()
-        for decompress_path, decompressed_gaussian in run_decompressions(os.path.join(os.path.dirname(args.start_checkpoint), 
+        for decompress_dir, decompressed_gaussian in run_decompressions(os.path.join(os.path.dirname(args.start_checkpoint), 
                                                                                       'compression', 
                                                                                       'post_training')): # 'iter_30000'
-            scene.gaussians = decompressed_gaussian
-            test_psnr = rendering_report(None, 30000, None, None, l1_loss, None, None, scene, render, (pipe, background), None)
-            import pdb; pdb.set_trace()
+            try:
+                decompress_path = os.path.join(os.path.dirname(args.start_checkpoint), 'compression', 'post_training', decompress_dir)
+                tb_writer = prepare_output_and_logger(decompress_path)
 
+                # to obatin rate
+                filesize_log = os.path.join(os.path.dirname(args.start_checkpoint), 'compression', 'post_training', 'filesize.json')
+                with open(filesize_log, 'r') as fp:
+                    filesize_dict = json.load(fp)
+                total_size = filesize_dict[decompress_dir]
+
+                tb_writer.add_scalar('compression' + '/total size (MB)', total_size/1e6, 30000)
+                tb_writer.add_scalar('compression' + '/bitrate (Mbps)', total_size/1e6/(time_duration[1] - time_duration[0])*8, 30000)
+
+                # to obtain distortion
+                scene.gaussians = decompressed_gaussian
+                test_psnr = rendering_report(tb_writer, 30000, None, None, l1_loss, None, None, scene, render, (pipe, background), None, decompress_path)
+                # import pdb; pdb.set_trace()
+            except Exception as e:
+                print(f"An error occurred: {e}")
+                print(f"Detailed error information: {repr(e)}")
     else:
         test_psnr = rendering_report(None, 30000, None, None, l1_loss, None, None, scene, render, (pipe, background), None)
 
          
 
-def prepare_output_and_logger(args):    
-    if not args.model_path:
-        if os.getenv('OAR_JOB_ID'):
-            unique_str=os.getenv('OAR_JOB_ID')
-        else:
-            unique_str = str(uuid.uuid4())
-        args.model_path = os.path.join("./output/", unique_str[0:10])
-        
-    # Set up output folder
-    print("Output folder: {}".format(args.model_path))
-    os.makedirs(args.model_path, exist_ok = True)
-    with open(os.path.join(args.model_path, "cfg_args"), 'w') as cfg_log_f:
-        cfg_log_f.write(str(Namespace(**vars(args))))
-
+def prepare_output_and_logger(path):    
     # Create Tensorboard writer
     tb_writer = None
     if TENSORBOARD_FOUND:
-        tb_writer = SummaryWriter(args.model_path)
+        tb_writer = SummaryWriter(path)
     else:
         print("Tensorboard not available: not logging progress")
     return tb_writer
 
-def rendering_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_iterations, scene : Scene, renderFunc, renderArgs, loss_dict=None):
+
+def save_tensor_as_png(tensor, filename):
+    np_img = (tensor.cpu() * 255).clamp(0, 255).byte()
+    img = transforms.ToPILImage()(np_img)
+    ## save png using 'PIL' lib
+    # img.save(save_renders+f"/{viewpoint.image_name}.png")
+    ## save png using 'fpnge' lib
+    png = fpnge.fromPIL(img)
+    with open(filename, 'wb') as f:
+        f.write(png)
+
+def rendering_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_iterations, scene : Scene, renderFunc, renderArgs, loss_dict=None, save_dir=None):
     psnr_test_iter = 0.0
     # Report test and samples of training set
     
-    save_basedir = scene.model_path+'/test/final'
-    os.makedirs(save_basedir, exist_ok=True)
-    save_gt = save_basedir+'/gt'
+    if save_dir is None:
+        save_dir = scene.model_path+'/test/final'
+    os.makedirs(save_dir, exist_ok=True)
+    save_gt = save_dir+'/gt'
     os.makedirs(save_gt, exist_ok=True)
-    save_renders = save_basedir+'/renders'
+    save_renders = save_dir+'/renders'
     os.makedirs(save_renders, exist_ok=True)
 
     config = {'name': 'test', 'cameras' : scene.getTestCameras()}
@@ -161,15 +182,9 @@ def rendering_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_
                 msssim_test += msssim(image[None].cpu(), gt_image[None].cpu())
 
                 # save imgs
-                np_img = (image.cpu() * 255).clamp(0, 255).byte()
-                img = transforms.ToPILImage()(np_img)
-                img.save(save_renders+f"/{viewpoint.image_name}.png")
-
-                np_img = (gt_image.cpu() * 255).clamp(0, 255).byte()
-                img = transforms.ToPILImage()(np_img)
-                img.save(save_gt+f"/{viewpoint.image_name}.png")
+                save_tensor_as_png(tensor=image, filename=save_renders+f"/{viewpoint.image_name}.png")
+                save_tensor_as_png(tensor=gt_image, filename=save_gt+f"/{viewpoint.image_name}.png")
                 
-
                 del render_pkg
                 del gt_image
                 del viewpoint
@@ -185,7 +200,7 @@ def rendering_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_
         msssim_test /= len(config['cameras'])        
         print("\n[ITER {}] Evaluating {}: L1 {} PSNR {}".format(iteration, config['name'], l1_test, psnr_test))
         if tb_writer:
-            tb_writer.add_scalar(config['name'] + '/loss_viewpoint - l1_loss', l1_test, iteration)
+            # tb_writer.add_scalar(config['name'] + '/loss_viewpoint - l1_loss', l1_test, iteration)
             tb_writer.add_scalar(config['name'] + '/loss_viewpoint - psnr', psnr_test, iteration)
             tb_writer.add_scalar(config['name'] + '/loss_viewpoint - ssim', ssim_test, iteration)
             tb_writer.add_scalar(config['name'] + '/loss_viewpoint - msssim', msssim_test, iteration)
